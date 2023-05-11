@@ -1,24 +1,23 @@
-import os
-import uno
-import time
 import logging
+import os
 import subprocess
+import time
 from threading import Timer
+
+import uno
 from com.sun.star.beans import PropertyValue
-from com.sun.star.lang import DisposedException, IllegalArgumentException
 from com.sun.star.connection import NoConnectException
 from com.sun.star.io import IOException
+from com.sun.star.lang import DisposedException, IllegalArgumentException
 from com.sun.star.script import CannotConvertException
 from com.sun.star.uno import RuntimeException
 
 from convert.common import Converter
-from convert.util import CONVERT_DIR, INSTANCE_DIR, flush_path
+from convert.util import INSTANCE_DIR
 from convert.util import SystemFailure, ConversionFailure
-
 
 DESKTOP = "com.sun.star.frame.Desktop"
 RESOLVER = "com.sun.star.bridge.UnoUrlResolver"
-OUT_FILE = os.path.join(CONVERT_DIR, "output.pdf")
 CONNECTION = (
     "socket,host=localhost,port=2002,tcpNoDelay=1;urp;StarOffice.ComponentContext"
 )
@@ -29,7 +28,7 @@ COMMAND = [
     "--nologo",
     "--headless",
     "--nocrashreport",
-    # "--nodefault",
+    "--nodefault",
     "--norestore",
     "--accept=%s" % CONNECTION,
 ]
@@ -39,7 +38,7 @@ log = logging.getLogger(__name__)
 
 class UnoconvConverter(Converter):
     """Launch a background instance of LibreOffice and convert documents
-    to PDF using it's filters.
+    to PDF using its filters.
     """
 
     PDF_FILTERS = (
@@ -50,7 +49,6 @@ class UnoconvConverter(Converter):
     )
 
     def start(self):
-        flush_path(INSTANCE_DIR)
         log.info("Starting LibreOffice: %s", " ".join(COMMAND))
         proc = subprocess.Popen(COMMAND, close_fds=True)
         time.sleep(2)
@@ -91,15 +89,15 @@ class UnoconvConverter(Converter):
         self.kill()
         raise SystemFailure("LibreOffice timed out.")
 
-    def convert_file(self, file_name, timeout):
+    def convert_file(self, infile, outfile, timeout):
         timer = Timer(timeout, self.on_timeout)
         timer.start()
         try:
-            return self._timed_convert_file(file_name)
+            return self._timed_convert_file(infile, outfile)
         finally:
             timer.cancel()
 
-    def _timed_convert_file(self, file_name):
+    def _timed_convert_file(self, file_name, outfile):
         desktop = self.connect()
         self.check_desktop(desktop)
         # log.debug("[%s] connected.", file_name)
@@ -132,12 +130,23 @@ class UnoconvConverter(Converter):
             except AttributeError:
                 pass
 
-            try:
-                doc.refresh()
-            except AttributeError:
-                pass
+            # Update document indexes
+            for ii in range(2):
+                # At first, update Table-of-Contents.
+                # ToC grows, so page numbers grow too.
+                # On second turn, update page numbers in ToC.
+                try:
+                    doc.refresh()
+                    indexes = doc.getDocumentIndexes()
+                except AttributeError:
+                    # The document doesn't implement the XRefreshable and/or
+                    # XDocumentIndexesSupplier interfaces
+                    break
+                else:
+                    for i in range(0, indexes.getCount()):
+                        indexes.getByIndex(i).update()
 
-            output_url = uno.systemPathToFileUrl(OUT_FILE)
+            output_url = uno.systemPathToFileUrl(outfile)
             prop = self.get_output_properties(doc)
             # log.debug("[%s] refreshed.", file_name)
             doc.storeToURL(output_url, prop)
@@ -154,10 +163,10 @@ class UnoconvConverter(Converter):
         ):
             raise ConversionFailure("Cannot generate PDF.")
 
-        stat = os.stat(OUT_FILE)
-        if stat.st_size == 0 or not os.path.exists(OUT_FILE):
+        stat = os.stat(outfile)
+        if stat.st_size == 0 or not os.path.exists(outfile):
             raise ConversionFailure("Cannot generate PDF.")
-        return OUT_FILE
+        return outfile
 
     def get_output_properties(self, doc):
         # https://github.com/unoconv/unoconv/blob/master/doc/filters.adoc

@@ -9,15 +9,15 @@ run this application stand-alone, this is not recommended. For normal usage, you
 latest stable image off DockerHub and run it like this:
 
 ```shell
-docker pull alephdata/convert-document
-docker run -p 3000:3000 -ti alephdata/convert-document
+make build
+docker run -p 3000:3000 -ti convert-document
 ```
 
-Once the service has initialised, files can be sent to the `/convert` endpoint, and a PDF version
+Once the service has initialised, files can be sent to the root endpoint, and a PDF version
 will be returned as a download:
 
 ```shell
-curl -o out.pdf -F format=pdf -F 'file=@mydoc.doc' http://localhost:3000/convert
+curl -o out.pdf -F format=pdf -F 'file=@mydoc.doc' http://localhost:3000
 ```
 
 ## Development
@@ -25,19 +25,13 @@ curl -o out.pdf -F format=pdf -F 'file=@mydoc.doc' http://localhost:3000/convert
 To build, run:
 
 ```shell
-docker build --rm -t alephdata/convert-document .
+meke build
 ```
 
 To get a development shell:
 
 ```shell
 make shell
-```
-
-Forced restart
-
-```shell
-make build && docker-compose -f docker-compose.dev.yml stop convert-document && docker-compose -f docker-compose.dev.yml up -d convert-document
 ```
 
 ## License

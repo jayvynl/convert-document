@@ -1,5 +1,6 @@
 fixtures/.*
 __pycache__/
 .vscode/
+.idea
 fixtures/*.pdf
 out.pdf
