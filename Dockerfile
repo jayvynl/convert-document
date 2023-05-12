@@ -38,6 +38,7 @@ HEALTHCHECK --interval=10s --timeout=10s --retries=100 \
 EXPOSE 3000
 CMD ["gunicorn", \
     "-w", "4", \
+    "--max-requests", "100", \
     "--bind", "0.0.0.0:3000", \
     "--access-logfile", "-", \
     "--error-logfile", "-", \

@@ -2,11 +2,16 @@ import logging
 
 from psutil import process_iter, TimeoutExpired, NoSuchProcess
 
+from convert.util import FileLock, LOCK_FILE
+
 log = logging.getLogger(__name__)
 
 
 class Converter(object):
     """Generic libreoffice converter class."""
+
+    def __init__(self, lock_file=LOCK_FILE):
+        self.lock = FileLock(lock_file)
 
     def convert_file(self, infile, outfile, timeout):
         raise NotImplementedError()

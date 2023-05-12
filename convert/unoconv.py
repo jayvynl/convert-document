@@ -7,10 +7,7 @@ from threading import Timer
 import uno
 from com.sun.star.beans import PropertyValue
 from com.sun.star.connection import NoConnectException
-from com.sun.star.io import IOException
 from com.sun.star.lang import DisposedException, IllegalArgumentException
-from com.sun.star.script import CannotConvertException
-from com.sun.star.uno import RuntimeException
 
 from convert.common import Converter
 from convert.util import INSTANCE_DIR
@@ -49,10 +46,14 @@ class UnoconvConverter(Converter):
     )
 
     def start(self):
-        log.info("Starting LibreOffice: %s", " ".join(COMMAND))
-        proc = subprocess.Popen(COMMAND, close_fds=True)
-        time.sleep(2)
-        log.info("PID: %s; return: %s", proc.pid, proc.returncode)
+        with self.lock:
+            if self.get_proc():
+                log.debug("office is running")
+                return
+            log.info("Starting LibreOffice: %s", " ".join(COMMAND))
+            proc = subprocess.Popen(COMMAND, close_fds=True)
+            time.sleep(2)
+            log.info("PID: %s; return: %s", proc.pid, proc.returncode)
 
     def _svc_create(self, ctx, clazz):
         return ctx.ServiceManager.createInstanceWithContext(clazz, ctx)
@@ -76,14 +77,7 @@ class UnoconvConverter(Converter):
         raise SystemFailure("No connection to LibreOffice")
 
     def check_healthy(self):
-        desktop = self.connect()
-        return desktop is not None
-
-    def check_desktop(self, desktop):
-        if desktop.getFrames().getCount() != 0:
-            raise SystemFailure("LibreOffice has stray frames.")
-        if desktop.getTasks() is not None:
-            raise SystemFailure("LibreOffice has stray tasks.")
+        return self.get_proc() is not None
 
     def on_timeout(self):
         self.kill()
@@ -97,17 +91,14 @@ class UnoconvConverter(Converter):
         finally:
             timer.cancel()
 
-    def _timed_convert_file(self, file_name, outfile):
+    def _timed_convert_file(self, infile, outfile):
         desktop = self.connect()
-        self.check_desktop(desktop)
-        # log.debug("[%s] connected.", file_name)
         try:
-            url = uno.systemPathToFileUrl(file_name)
+            url = uno.systemPathToFileUrl(infile)
             props = self.property_tuple(
                 {
                     "Hidden": True,
                     "MacroExecutionMode": 0,
-                    "ReadOnly": True,
                     "Overwrite": True,
                     "OpenNewView": True,
                     "StartPresentation": False,
@@ -123,13 +114,7 @@ class UnoconvConverter(Converter):
         if doc is None:
             raise ConversionFailure("Cannot open document.")
 
-        # log.debug("[%s] opened.", file_name)
         try:
-            try:
-                doc.ShowChanges = False
-            except AttributeError:
-                pass
-
             # Update document indexes
             for ii in range(2):
                 # At first, update Table-of-Contents.
@@ -146,26 +131,26 @@ class UnoconvConverter(Converter):
                     for i in range(0, indexes.getCount()):
                         indexes.getByIndex(i).update()
 
+            # save original file.
+            prop_dic = {}
+            _, ext = os.path.splitext(infile)
+            if ext == ".docx":
+                prop_dic["FilterName"] = "MS Word 2007 XML"
+            doc.storeToURL(url, self.property_tuple(prop_dic))
+
             output_url = uno.systemPathToFileUrl(outfile)
             prop = self.get_output_properties(doc)
             # log.debug("[%s] refreshed.", file_name)
             doc.storeToURL(output_url, prop)
-            # log.debug("[%s] exported.", file_name)
+        except Exception:
+            self.kill()
+            self.start()
+            raise
+        finally:
             doc.dispose()
             doc.close(True)
             del doc
-            # log.debug("[%s] closed.", file_name)
-        except (
-            DisposedException,
-            IOException,
-            CannotConvertException,
-            RuntimeException,
-        ):
-            raise ConversionFailure("Cannot generate PDF.")
 
-        stat = os.stat(outfile)
-        if stat.st_size == 0 or not os.path.exists(outfile):
-            raise ConversionFailure("Cannot generate PDF.")
         return outfile
 
     def get_output_properties(self, doc):
