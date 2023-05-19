@@ -77,6 +77,10 @@ class UnoconvConverter(Converter):
         raise SystemFailure("No connection to LibreOffice")
 
     def check_healthy(self):
+        if self.get_proc():
+            return True
+        else:
+            self.start()
         return self.get_proc() is not None
 
     def on_timeout(self):
