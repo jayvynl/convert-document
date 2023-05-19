@@ -42,5 +42,6 @@ CMD ["gunicorn", \
     "--bind", "0.0.0.0:3000", \
     "--access-logfile", "-", \
     "--error-logfile", "-", \
+    "--disable-redirect-access-to-syslog", \
     "--timeout", "84600", \
     "convert.app:app"]
